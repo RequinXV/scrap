@@ -1,0 +1,105 @@
+import requests
+import base64
+import csv
+import pandas as pd
+from bs4 import BeautifulSoup
+
+
+class Bass:
+    def __init__(self, fabricant, modele, serie, categorie):
+        self.fabricant = fabricant
+        self.modele = modele
+        self.serie = serie
+        self.categorie = categorie
+        
+    def to_dict(self):
+        return {
+            "Fabricant": self.fabricant,
+            "Modèle": self.modele,
+            "Série": self.serie,
+            "Catégorie": self.categorie,
+        }
+        
+
+class Scraper:
+    def __init__(self, base_url):
+        self.base_url = base_url
+        
+    def get_links(self, nb_pages):
+        urls = []
+        for i in range(nb_pages):
+            urls.append(self.base_url + "?offset=" + str(i * 20))
+        return urls
+    
+    def get_endpoints(self, soup):
+        lis = soup.findAll("li", class_="playlist-item cards-item")
+        links = []
+        for li in lis:
+            try:
+                href = li.find('a')['href']
+            except TypeError:
+                href = base64.b64decode(li.span['data-submit']).decode('utf-8').replace(self.base_url, "")
+            links.append(href)
+        return links
+    
+    def scrape(self, url, process):
+        response = requests.get(url)
+        if response.ok:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            try:
+                return process(soup)
+            except Exception:
+                print("ERROR: Impossible to process ! On :" + str(url))
+        else:
+            print("ERROR: Failed Connect on :" + str(url))
+        
+    def add_base_url(self, urls):
+        res = []
+        if isinstance(urls, list):
+            for url in urls:
+                res.append(self.base_url + url)
+        return res
+    
+    def write_links_to_file(self, links):
+        with open('links.csv', 'w', newline='', encoding='utf-8') as f:
+            writer = csv.writer(f)
+            writer.writerows(links)
+            
+    def write_data_to_csv(self, file, data):
+        fieldnames = ["Fabricant", "Modèle", "Série", "Catégorie"]
+        with open(file, 'w', encoding='UTF8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(data)
+    
+    def run(self, uri, nb_pages=1):
+        urls = []
+        for link in self.get_links(nb_pages):
+            print("Checking " + link)
+            urls.extend(self.add_base_url(self.scrape(link + uri, self.get_endpoints)))
+            print("You'got actually :" + str(len(urls)) + " links !")
+        
+        rows = [{'link': url} for url in urls]
+        
+        data = []
+        for url in urls:
+            fiche = self.scrape(url, self.get_info_by_page)
+            if fiche:
+                data.append(fiche.to_dict())
+        
+        fields_links = ['link']
+        self.write_links_to_file(rows)
+        self.write_data_to_csv('Fichesbasses.csv', data)
+        
+        print("Done")
+        
+    def get_info_by_page(self, soup):
+        ul = soup.find("ul", class_="product-information-header")
+        spanstab = []
+
+        if ul is not None:
+            for uls in ul.find_all("li"):
+                spans = uls.find_all("span")
+                spanstab.append(spans)
+
+            fabricant = spanstab[0][1].
